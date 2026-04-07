@@ -129,11 +129,9 @@ class USDataProvider(BaseDataProvider):
         return []
 
     @cache_it
-    def earnings_release_text(self, ticker: str) -> str:
+    def earnings_release_pdf_path(self, ticker: str) -> str:
         # Placeholder provisório até a integração oficial da SEC EDGAR API
-        info = yf.Ticker(ticker).info
-        summary = info.get('longBusinessSummary')
-        if summary:
-            return f"[SEC EDGAR STUB] Business Summary Extract for {ticker}:\n{summary}"
-        return f"Earnings Release document for {ticker} not available yet."
+        # Lança erro gracioso que será tratado pelo analyst fallback
+        raise ValueError(f"Earnings Release para o ticker US {ticker} não implementado ainda (EDGAR pendente).")
+
 

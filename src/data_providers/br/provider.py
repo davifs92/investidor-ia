@@ -76,7 +76,7 @@ class BRDataProvider(BaseDataProvider):
         return statusinvest.payouts(ticker)
 
     @cache_it
-    def earnings_release_text(self, ticker: str) -> str:
+    def earnings_release_pdf_path(self, ticker: str) -> str:
         results_trimestrais = fundamentus.resultados_trimestrais(ticker)
         download_link = results_trimestrais[0]['download_link'] if results_trimestrais else None
         if not download_link:
@@ -87,9 +87,16 @@ class BRDataProvider(BaseDataProvider):
             raise ValueError('Não foi possível encontrar o earnings release para o ticker informado.')
 
         import requests
-        import io
-        from pypdf import PdfReader
-        content = requests.get(download_link).content
-        reader = PdfReader(io.BytesIO(content))
-        return ''.join([page.extract_text() for page in reader.pages])
+        import os
+        import tempfile
+        
+        try:
+            content = requests.get(download_link, timeout=15).content
+            tmp_path = os.path.join(tempfile.gettempdir(), f"{ticker}_earnings.pdf")
+            with open(tmp_path, 'wb') as f:
+                f.write(content)
+            return tmp_path
+        except Exception as e:
+            raise ValueError(f"Faha no download do arquivo PDF: {e}")
+
 

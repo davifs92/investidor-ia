@@ -60,6 +60,6 @@ class BaseDataProvider(ABC):
         pass
 
     @abstractmethod
-    def earnings_release_text(self, ticker: str) -> str:
+    def earnings_release_pdf_path(self, ticker: str) -> str:
         pass
 

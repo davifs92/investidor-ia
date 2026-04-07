@@ -47,7 +47,8 @@ def screener():
 def payouts(ticker: str) -> list[dict]:
     return MarketRouter.get_provider(ticker).payouts(ticker)
 
-def earnings_release_text(ticker: str) -> str:
-    return MarketRouter.get_provider(ticker).earnings_release_text(ticker)
+def earnings_release_pdf_path(ticker: str) -> str:
+    return MarketRouter.get_provider(ticker).earnings_release_pdf_path(ticker)
+
 
 
