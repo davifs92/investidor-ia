@@ -1,7 +1,10 @@
+import asyncio
 import datetime
 import json
 import os
 from pathlib import Path
+
+import nest_asyncio
 
 from pydantic import BaseModel
 import streamlit as st
@@ -47,18 +50,38 @@ def _generate_investor_report(
         st.error(f'Ticker {ticker} não encontrado')
         return
 
-    # ai analysts
-    with st.spinner('Analisando earnings release...'):
-        earnings_release_analysis = earnings_release.analyze(ticker)
+    # ai analysts — execução paralela com asyncio
+    # nest_asyncio permite asyncio.run() dentro do event loop do Streamlit
+    nest_asyncio.apply()
 
-    with st.spinner('Analisando dados financeiros...'):
-        financial_analysis = financial.analyze(ticker)
+    async def _run_analysts() -> tuple:
+        return await asyncio.gather(
+            asyncio.to_thread(earnings_release.analyze, ticker),
+            asyncio.to_thread(financial.analyze, ticker),
+            asyncio.to_thread(valuation.analyze, ticker),
+            asyncio.to_thread(news.analyze, ticker),
+        )
 
-    with st.spinner('Analisando valuation...'):
-        valuation_analysis = valuation.analyze(ticker)
+    st.markdown("#### Analisando empresa em paralelo...")
+    col1, col2 = st.columns(2)
+    col3, col4 = st.columns(2)
+    
+    with col1: ph_earnings = st.empty(); ph_earnings.info("⏳ Earnings Release...")
+    with col2: ph_financial = st.empty(); ph_financial.info("⏳ Dados Financeiros...")
+    with col3: ph_valuation = st.empty(); ph_valuation.info("⏳ Valuation...")
+    with col4: ph_news = st.empty(); ph_news.info("⏳ Notícias...")
 
-    with st.spinner('Analisando notícias...'):
-        news_analysis = news.analyze(ticker=ticker)
+    (
+        earnings_release_analysis,
+        financial_analysis,
+        valuation_analysis,
+        news_analysis,
+    ) = asyncio.run(_run_analysts())
+
+    ph_earnings.success("✅ Earnings Release")
+    ph_financial.success("✅ Dados Financeiros")
+    ph_valuation.success("✅ Valuation")
+    ph_news.success("✅ Notícias")
 
     # final investor analysis
     with st.spinner('Gerando relatório final...'):

@@ -42,3 +42,7 @@ node_modules/
 dist/
 /media/
 .cache/
+# Private LLM notes
+ROADMAP.md
+agents.md
+session_decisions.md

@@ -1,12 +1,13 @@
 import fitz
 
 from agno.models.base import Model
-from agno.models.google.gemini import Gemini
+from agno.models.anthropic import Claude
+from agno.models.google import Gemini
 from agno.models.openai import OpenAIChat
-from agno.models.openrouter import OpenRouter
+from agno.models.groq import Groq
 
 
-from src.settings import PROVIDER, MODEL, API_KEY
+from src.settings import PROVIDER, MODEL
 
 
 def pdf_to_text(pdf_path: str) -> str:
@@ -29,11 +30,28 @@ def calc_cagr(data: dict, name: str, length: int = 5) -> float:
 
 
 def get_model(temperature: float = 0.3) -> Model:
-    if PROVIDER == 'GOOGLE':
-        return Gemini(id=MODEL, temperature=temperature, api_key=API_KEY)
-    elif PROVIDER == 'OPENAI':
-        return OpenAIChat(id=MODEL, temperature=temperature, api_key=API_KEY)
-    elif PROVIDER == 'OPENROUTER':
-        return OpenRouter(id=MODEL, temperature=temperature, api_key=API_KEY)
+    """
+    Retorna o modelo LLM configurado via .env (LLM_PROVIDER).
+
+    Providers suportados (via variável LLM_PROVIDER):
+        - gemini   → Google Gemini (ex: gemini-2.0-flash)
+        - claude   → Claude Anthropic (ex: claude-3-5-sonnet-latest)
+        - openai   → GPT (ex: gpt-4o)
+        - groq     → Groq (ex: llama-3.3-70b-versatile)
+    """
+    provider = PROVIDER.lower().strip()
+    
+    if provider == 'gemini':
+        # API Key auto-detected by Agno from GOOGLE_API_KEY env var
+        return Gemini(id=MODEL, temperature=temperature)
+    elif provider == 'claude':
+        # API Key auto-detected by Agno from ANTHROPIC_API_KEY env var
+        return Claude(id=MODEL, temperature=temperature)
+    elif provider == 'openai':
+        # API Key auto-detected by Agno from OPENAI_API_KEY env var
+        return OpenAIChat(id=MODEL, temperature=temperature)
+    elif provider == 'groq':
+        # API Key auto-detected by Agno from GROQ_API_KEY env var
+        return Groq(id=MODEL, temperature=temperature)
     else:
-        raise ValueError(f'Modelo {MODEL} não encontrado')
+        raise ValueError(f'Provider "{PROVIDER}" não suportado. Use um dos configurados em .env: gemini, claude, openai ou groq.')

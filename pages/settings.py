@@ -1,66 +1,51 @@
 import streamlit as st
-import json
 import os
+from pathlib import Path
+from dotenv import set_key, load_dotenv
 
-from src.settings import DB_DIR, reload_llm_config, get_llm_config
-
+from src.settings import PROVIDER, MODEL, PROJECT_DIR
 
 st.set_page_config(layout='centered')
 
-
 st.title('Configurações')
-
 st.divider()
 
+env_file = PROJECT_DIR / '.env'
+if not env_file.exists():
+    env_file.touch()
 
-def _get_api_key(provider: str) -> str | None:
-    with open(os.path.join(DB_DIR, 'api_keys.json'), 'r') as f:
-        api_keys = json.load(f)
-    return api_keys.get(provider)
-
-
-def _get_provider_and_model() -> tuple[str, str] | None:
-    with open(os.path.join(DB_DIR, 'model.json'), 'r') as f:
-        model = json.load(f)
-    return model.get('provider'), model.get('model')
-
-
-def _save_api_keys(api_keys: dict[str, str]):
-    with open(os.path.join(DB_DIR, 'api_keys.json'), 'w') as f:
-        json.dump(api_keys, f)
-
-
-def _save_model(provider, model):
-    with open(os.path.join(DB_DIR, 'model.json'), 'w') as f:
-        json.dump({'provider': provider, 'model': model}, f)
-
+# Certifica de que as variaveis estão atualizadas do .env
+load_dotenv(env_file, override=True)
 
 st.markdown('### Provedor e Modelo')
 
-provider, model = _get_provider_and_model()
+provider_options = ['gemini', 'claude', 'openai', 'groq']
+current_provider_lower = PROVIDER.lower().strip()
+if current_provider_lower not in provider_options:
+    current_provider_lower = 'gemini'
 
-provider_options = ['GOOGLE', 'OPENAI', 'OPENROUTER']
-provider = st.selectbox('Provedor', provider_options, index=provider_options.index(provider))
-model = st.text_input('Modelo', value=model)
+provider = st.selectbox('Provedor', provider_options, index=provider_options.index(current_provider_lower))
+model = st.text_input('Modelo', value=MODEL)
 
 st.divider()
 
 st.markdown('### API Keys')
 
-google_key = st.text_input('GOOGLE API KEY', type='password', value=_get_api_key('GOOGLE'))
-openai_key = st.text_input('OPENAI API KEY', type='password', value=_get_api_key('OPENAI'))
-openrouter_key = st.text_input('OPENROUTER API KEY', type='password', value=_get_api_key('OPENROUTER'))
+google_key = st.text_input('GOOGLE_API_KEY', type='password', value=os.environ.get('GOOGLE_API_KEY', ''))
+anthropic_key = st.text_input('ANTHROPIC_API_KEY', type='password', value=os.environ.get('ANTHROPIC_API_KEY', ''))
+openai_key = st.text_input('OPENAI_API_KEY', type='password', value=os.environ.get('OPENAI_API_KEY', ''))
+groq_key = st.text_input('GROQ_API_KEY', type='password', value=os.environ.get('GROQ_API_KEY', ''))
 
 st.divider()
 
-if st.button('Salvar'):
-    _save_api_keys(
-        {
-            'GOOGLE': google_key,
-            'OPENAI': openai_key,
-            'OPENROUTER': openrouter_key,
-        }
-    )
-    _save_model(provider, model)
-    st.success('Configurações salvas com sucesso!')
-    reload_llm_config()
+if st.button('Salvar Requer Reinício'):
+    set_key(env_file, 'LLM_PROVIDER', provider)
+    set_key(env_file, 'LLM_MODEL', model)
+    
+    if google_key: set_key(env_file, 'GOOGLE_API_KEY', google_key)
+    if anthropic_key: set_key(env_file, 'ANTHROPIC_API_KEY', anthropic_key)
+    if openai_key: set_key(env_file, 'OPENAI_API_KEY', openai_key)
+    if groq_key: set_key(env_file, 'GROQ_API_KEY', groq_key)
+    
+    st.success('Configurações salvas no arquivo .env! Reinicie o app para aplicar.')
+

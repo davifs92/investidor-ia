@@ -1,25 +1,6 @@
 import json
 from pathlib import Path
-
-
-def get_llm_config() -> dict[str, str] | None:
-    try:
-        # provider
-        with open(DB_DIR / 'model.json', 'r') as f:
-            model = json.load(f)
-
-        # api key
-        with open(DB_DIR / 'api_keys.json', 'r') as f:
-            api_keys = json.load(f)
-
-        return {
-            'provider': model['provider'],
-            'model': model['model'],
-            'api_key': api_keys.get(model['provider']),
-        }
-    except FileNotFoundError:
-        return None
-
+from decouple import config
 
 PROJECT_DIR = Path(__file__).parent.parent
 
@@ -29,11 +10,17 @@ CACHE_DIR.mkdir(exist_ok=True, parents=True)
 DB_DIR = PROJECT_DIR / 'db'
 DB_DIR.mkdir(exist_ok=True, parents=True)
 
-# LLMs
-llm_config = get_llm_config()
-PROVIDER = llm_config['provider']
-MODEL = llm_config['model']
-API_KEY = llm_config['api_key']
+# LLMs via .env
+PROVIDER = config('LLM_PROVIDER', default='gemini').lower()
+
+# Default models by provider if not explicitly configured
+_DEFAULT_MODELS = {
+    'gemini': 'gemini-2.0-flash',
+    'claude': 'claude-3-5-sonnet-latest',
+    'openai': 'gpt-4o',
+    'groq': 'llama-3.3-70b-versatile',
+}
+MODEL = config('LLM_MODEL', default=_DEFAULT_MODELS.get(PROVIDER, ''))
 
 # investors
 INVESTORS = {
@@ -41,11 +28,3 @@ INVESTORS = {
     'graham': 'Benjamin Graham',
     'barsi': 'Luiz Barsi',
 }
-
-
-def reload_llm_config():
-    global PROVIDER, MODEL, API_KEY
-    llm_config = get_llm_config()
-    PROVIDER = llm_config['provider']
-    MODEL = llm_config['model']
-    API_KEY = llm_config['api_key']
