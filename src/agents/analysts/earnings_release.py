@@ -1,41 +1,14 @@
-import requests
-import io
-
-from pypdf import PdfReader
 from agno.agent import Agent
 
 from src.agents.base import BaseAgentOutput
 from src.data import stocks
-from src.data._sources import fundamentus
 from src.utils import get_model
-
-
-def _get_earnings_release_url(ticker: str) -> str:
-    results_trimestrais = fundamentus.resultados_trimestrais(ticker)
-    download_link = results_trimestrais[0]['download_link']
-    if download_link is None:
-        download_link = fundamentus.apresentacoes(ticker)[0]['download_link']
-
-    if download_link is None:
-        raise ValueError('Não foi possível encontrar o earnings release')
-
-    return download_link
-
-
-def _get_earnings_release_text(ticker: str) -> str:
-    release_url = _get_earnings_release_url(ticker)
-    content = requests.get(release_url).content
-    reader = PdfReader(io.BytesIO(content))
-    full_text = ''
-    for page in reader.pages:
-        full_text += page.extract_text()
-    return full_text
 
 
 def analyze(ticker: str) -> BaseAgentOutput:
     company_name = stocks.name(ticker)
     try:
-        earnings_release_text = _get_earnings_release_text(ticker)
+        earnings_release_text = stocks.earnings_release_text(ticker)
     except Exception as e:
         print(f'Erro ao baixar o earnings release: {e}')
         return BaseAgentOutput(content='Erro ao baixar o earnings release', sentiment='NEUTRAL', confidence=0)
