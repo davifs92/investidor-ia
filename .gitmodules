@@ -1,0 +1,3 @@
+[submodule "mcp_servers/investmcp"]
+	path = mcp_servers/investmcp
+	url = https://github.com/davifs92/InvestMCP.git
