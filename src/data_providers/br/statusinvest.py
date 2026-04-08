@@ -1,7 +1,6 @@
 import requests
 from typing import Literal
 
-import pandas as pd
 import unidecode
 from bs4 import BeautifulSoup
 

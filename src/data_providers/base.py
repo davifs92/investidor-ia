@@ -17,7 +17,7 @@ class BaseDataProvider(ABC):
         year_start: int | None = None,
         year_end: int | None = None,
         period: Literal['annual', 'quarter'] = 'annual',
-    ) -> dict:
+    ) -> list[dict]:
         pass
 
     @abstractmethod
@@ -27,7 +27,7 @@ class BaseDataProvider(ABC):
         year_start: int | None = None,
         year_end: int | None = None,
         period: Literal['annual', 'quarter'] = 'annual',
-    ) -> dict:
+    ) -> list[dict]:
         pass
 
     @abstractmethod
@@ -36,7 +36,7 @@ class BaseDataProvider(ABC):
         ticker: str, 
         year_start: int | None = None, 
         year_end: int | None = None
-    ) -> dict:
+    ) -> list[dict]:
         pass
 
     @abstractmethod

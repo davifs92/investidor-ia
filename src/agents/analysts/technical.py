@@ -5,31 +5,23 @@ from src.agents.base import BaseAgentOutput
 from src.utils import get_model
 
 def analyze(ticker: str) -> BaseAgentOutput:
-    prompt = f"""
-    Você é um analista técnico quantitativo especializado em mercado de ações.
-    Sua tarefa é analisar o comportamento dos preços e padrões da empresa {ticker}.
-    USANDO ESTRITAMENTE as suas ferramentas conectadas ativamente via servidor MCP, chame as funções:
-    - calculate_rsi
-    - analyze_macd
-    - analyze_moving_averages
-    
-    ## OBJETIVO
-    Obtenha os dados via ferramentas e crie um laudo de Análise Técnica identificando o momento gráfico (Compra, Venda ou Neutro).
-    NUNCA fabrique dados irreais ou imagine valores.
-    
-    ## FORMATO DE RESPOSTA
+    system_message = f"""
+    Você é um Analista Técnico Quantitativo especialista.
+    Sua tarefa é extrair e interpretar dados dos indicadores nativos RSI, MACD e Médias Móveis.
+    USANDO ESTRITAMENTE as suas ferramentas conectadas ao MCP, obetenha os valores reais para o Ticker: {ticker}.
+
+    ## OBJETIVO E FORMATO DE RESPOSTA
     Desenvolva um Markdown sucinto destacando:
-    1. A posição das médias móveis.
-    2. O status do Força Relativa (I.F.R / RSI).
+    1. A posição atual das médias móveis.
+    2. O status de Força Relativa (sobrecomprado/sobrevendido).
     3. A divergência atual do MACD.
-    4. Um veredito sumarizado final apontando o sinal unificado indicando 'Overbought', 'Oversold', etc.
-    
-    Sua resposta DEVE ser retornada no formato JSON encapsulado em BaseAgentOutput, com:
-    - content: Markdown do resumo
-    - sentiment: (BULLISH, BEARISH ou NEUTRAL)
-    - confidence: grau de certeza baseado na convergência dos 3 indicadores (int de 0 a 100).
+    4. Veredito final ('Overbought', 'Oversold', etc).
+
+    NUNCA fabrique dados irreais. Use sempre as ferramentas.
     """
     
+    import datetime
+    today = datetime.date.today().isoformat()
     try:
         # Orquestração do InvestMCP Submodule via stdio transport no ambiente ativo
         technical_mcp_toolkit = MCPTools(
@@ -38,7 +30,7 @@ def analyze(ticker: str) -> BaseAgentOutput:
         )
         
         agent = Agent(
-            system_message=prompt,
+            system_message=system_message,
             model=get_model(temperature=0.0),
             response_model=BaseAgentOutput,
             tools=[technical_mcp_toolkit],
@@ -46,7 +38,7 @@ def analyze(ticker: str) -> BaseAgentOutput:
             retries=3,
         )
         
-        response = agent.run(f"Realize a análise técnica sistêmica usando todas as ferramentas ao seu dispor para o Ticker: {ticker}.")
+        response = agent.run(f"Data Base: {today}\n\nRealize a análise técnica sistêmica usando todas as ferramentas ao seu dispor para o Ticker: {ticker}.")
         return response.content
         
     except Exception as e:

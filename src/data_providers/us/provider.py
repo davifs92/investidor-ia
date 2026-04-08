@@ -118,7 +118,7 @@ class USDataProvider(BaseDataProvider):
         for d in divs:
             y = int(d['data_pagamento'][:4])
             yearly[y] = yearly.get(y, 0.0) + d['valor']
-        return [{'ano': y, 'valor': round(v, 4)} for y, v in sorted(yearly.items(), key=lambda x: x['ano'])]
+        return [{'ano': y, 'valor': round(v, 4)} for y, v in sorted(yearly.items(), key=lambda x: x[0])]
 
     @cache_it
     def screener(self):

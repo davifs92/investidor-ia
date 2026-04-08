@@ -1,4 +1,3 @@
-import inspect
 from typing import Literal
 
 from src.cache import cache_it

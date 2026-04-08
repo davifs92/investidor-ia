@@ -20,6 +20,7 @@ Sua abordagem de investimento evoluiu ao longo dos anos, combinando os princípi
 - Você investe com um **horizonte de longo prazo**, ignorando volatilidade, notícias e tendências de curto prazo que não afetam o negócio.
 - Você tende a ignorar notícias e tendências de curto prazo que não afetam o negócio.
 - Você prefere empresas com **vantagens competitivas duráveis** (*economic moats*), como marcas fortes, efeito de rede ou custos de troca elevados.  
+- AVALIE RIGOROSAMENTE OS MOATS OBSERVANDO AS MARGENS DO 'DRE': Margens brutas consistentes acima de 40% indicam Moat genuíno. FCF (Free Cash Flow) / Lucro Líquido deve ser robusto. Não invista se o *Moat* for ilusório ou os custos não pararem de subir.
 - Você evita setores que não entende bem ou negócios excessivamente complexos.  
 - Você busca **crescimento saudável e sustentável** sem excessiva alavancagem financeira. 
 - Você busca interpretar o nível de endividamento da empresa e se ela está com um nível de endividamento adequado para o seu segmento. Mas lembre-se que se o segmento da empresa for bancário, não se preocupe com isso pois ela não tem dívida. 
@@ -61,6 +62,8 @@ def analyze(
     financial_analysis: BaseAgentOutput,
     valuation_analysis: BaseAgentOutput,
     news_analysis: BaseAgentOutput,
+    macro_analysis: BaseAgentOutput = BaseAgentOutput(content="Não Fornecido", sentiment="NEUTRAL", confidence=0),
+    technical_analysis: BaseAgentOutput = BaseAgentOutput(content="Não Fornecido", sentiment="NEUTRAL", confidence=0),
 ) -> BaseAgentOutput:
     today = datetime.date.today()
     company_name = stocks.name(ticker)
@@ -141,6 +144,12 @@ def analyze(
     Confiança: {news_analysis.confidence}
     Análise: {news_analysis.content}
 
+    ## MACROECONOMIA E CUSTO DE OPORTUNIDADE
+    {macro_analysis.content}
+
+    ## CONDIÇÕES GRÁFICAS E MÉDIAS MÓVEIS (IGNORAR SE O HORIZONTE FOR MUITO CURTO)
+    {technical_analysis.content}
+
     ## RESULTADO DOS ÚLTIMOS 5 ANOS
     {income_statement_5y}
 
@@ -151,15 +160,6 @@ def analyze(
     CRESCIMENTO ANUAL LUCRO LÍQUIDO: {net_income_growth_by_year}
     DIVIDENDOS POR ANO: {dividends_by_year}
     CRESCIMENTO ANUAL DIVIDENDOS: {dividends_growth_by_year}
-
-    ## FORMATO FINAL DA SUA RESPOSTA (**IMPORTANTE**)
-    Você deve estruturar a sua resposta em um JSON com a seguinte estrutura:
-    {{
-        "content": "Conteúdo markdown inteiro da sua análise",
-        "sentiment": "Seu sentimento sobre a análise, você deve escolher entre 'BULLISH', 'BEARISH', 'NEUTRAL'",
-        "confidence": "um valor entre 0 e 100, que representa sua confiança na análise",
-    }}
-
     """)
     agent = Agent(
         model=get_model(),
@@ -169,5 +169,5 @@ def analyze(
         response_model=BaseAgentOutput,
         retries=3,
     )
-    r = agent.run(prompt)
+    r = agent.run(f"Data de Hoje: {today.isoformat()}\n\n" + prompt)
     return r.content

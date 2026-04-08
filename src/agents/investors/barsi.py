@@ -61,6 +61,8 @@ def analyze(
     financial_analysis: BaseAgentOutput,
     valuation_analysis: BaseAgentOutput,
     news_analysis: BaseAgentOutput,
+    macro_analysis: BaseAgentOutput = BaseAgentOutput(content="Não Fornecido", sentiment="NEUTRAL", confidence=0),
+    technical_analysis: BaseAgentOutput = BaseAgentOutput(content="Não Fornecido", sentiment="NEUTRAL", confidence=0),
 ) -> BaseAgentOutput:
     today = datetime.date.today()
     year_start = today.year - 5
@@ -125,6 +127,12 @@ def analyze(
     Confiança: {news_analysis.confidence}
     Análise: {news_analysis.content}
 
+    ## MACROECONOMIA E CUSTO DE OPORTUNIDADE
+    {macro_analysis.content}
+
+    ## CONDIÇÕES GRÁFICAS E MÉDIAS MÓVEIS (IGNORAR SE O HORIZONTE FOR MUITO CURTO)
+    {technical_analysis.content}
+
     ## DADOS FINANCEIROS DISPONÍVEIS
     {dre_year}
 
@@ -138,14 +146,6 @@ def analyze(
     HISTÓRICO DE DIVIDENDOS: {dividends_by_year}
     HISTÓRICO DE DIVIDEND YIELD POR ANO: {dividend_yield_per_year}
     HISTÓRICO DE PAYOUTS (EM %): {payouts}
-
-    ## FORMATO FINAL DA SUA RESPOSTA (**IMPORTANTE**)
-    Você deve estruturar a sua resposta em um JSON com a seguinte estrutura:
-    {{
-        "content": "Conteúdo markdown inteiro da sua análise",
-        "sentiment": "Seu sentimento sobre a análise, você deve escolher entre 'BULLISH', 'BEARISH', 'NEUTRAL'",
-        "confidence": "um valor entre 0 e 100, que representa sua confiança na análise",
-    }}
     """)
 
     agent = Agent(
@@ -156,5 +156,5 @@ def analyze(
         response_model=BaseAgentOutput,
         retries=3,
     )
-    r = agent.run(prompt)
+    r = agent.run(f"Data de Hoje: {today.isoformat()}\n\n" + prompt)
     return r.content

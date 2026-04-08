@@ -1,4 +1,3 @@
-import os
 from agno.knowledge.pdf import PDFKnowledgeBase, PDFReader
 from agno.vectordb.lancedb import LanceDb, SearchType
 

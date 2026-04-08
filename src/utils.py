@@ -24,7 +24,9 @@ def pdf_bytes_to_text(pdf_bytes: bytes) -> str:
 
 def calc_cagr(data: dict, name: str, length: int = 5) -> float:
     """ps: data precisa estar em ordem decrescente, do mais novo para o mais antigo"""
-    values = [d[name] for d in data][:length]
+    values = [d[name] for d in data if name in d and d[name]][:length]
+    if len(values) < 2:
+        return 0.0
     cagr = (values[0] / values[-1]) ** (1 / (len(values) - 1)) - 1
     return cagr
 

@@ -41,13 +41,41 @@ def _search_news_einvestidor(ticker: str, company_name: str) -> list[News]:
     return news
 
 
+def _search_news_international(ticker: str, company_name: str) -> list[News]:
+    """Busca notícias para tickers internacionais (NYSE/NASDAQ) via DuckDuckGo em fontes globais."""
+    results = DDGS().text(
+        f'{company_name} ({ticker}) stock news site:reuters.com OR site:finance.yahoo.com OR site:bloomberg.com OR site:cnbc.com',
+        max_results=5,
+        timelimit='1m',
+    )
+
+    news = []
+    for result in results:
+        url = result.get('href', '')
+        news.append({
+            'title': result.get('title', ''),
+            'url': url,
+            'body': result.get('body', ''),
+            'content': result.get('body', '')  # usa o snippet sem scraping adicional
+        })
+
+    return news
+
+
 def analyze(ticker: str) -> BaseAgentOutput:
     company_name = stocks.name(ticker)
-    news = _search_news_einvestidor(ticker, company_name)
+    is_br = ticker.upper().endswith('.SA')
 
-    prompt = f"""
-    Você é um analista especializado em pesquisar e analisar notícias sobre empresas listadas na B3.
-    Sua tarefa é buscar e sintetizar as notícias mais relevantes sobre a empresa analisada, focando em:
+    if is_br:
+        news = _search_news_einvestidor(ticker, company_name)
+        mercado_label = 'Brasil (B3)'
+    else:
+        news = _search_news_international(ticker, company_name)
+        mercado_label = 'Internacional (NYSE/NASDAQ)'
+
+    system_message = """
+    Você é um analista especializado em pesquisar e analisar notícias de mercado financeiro.
+    Sua tarefa é buscar e sintetizar as notícias mais relevantes sobre a empresa fornecida.
 
     ## OBJETIVOS DA ANÁLISE
     1. Identificar eventos significativos recentes que possam impactar a empresa
@@ -58,37 +86,33 @@ def analyze(ticker: str) -> BaseAgentOutput:
 
     ## SUA ANÁLISE
     - Resuma cada notícia lida em poucas frases
-    - Ao final, você deve fornecer uma conclusão objetiva em 3-5 frases sobre o sentimento geral das notícias e o impacto potencial no curto e médio prazo.
+    - Ao final, forneça uma conclusão objetiva em 3-5 frases sobre o sentimento geral e o impacto de curto/médio prazo.
+    - Se não houver notícias coerentes na carga, retorne conteúdo vazio e sentimento NEUTRAL com confiança 0.
 
-    ## DIRETRIZES IMPORTANTES
+    ## DIRETRIZES
     - Mantenha objetividade na análise
-    - Destaque fatos concretos, não especulações
-    - Indique claramente a temporalidade das notícias
-    - Foque em conteúdo relevante para investidores
+    - Destaque fatos concretos
+    """
 
-    ## FORMATO FINAL (IMPORTANTE)
-    Você deve estruturar a sua resposta em um JSON com a seguinte estrutura:
-    {{
-        "content": "Conteúdo markdown inteiro da sua análise",
-        "sentiment": "Seu sentimento sobre a análise, você deve escolher entre 'BULLISH', 'BEARISH', 'NEUTRAL'",
-        "confidence": "um valor entre 0 e 100, que representa sua confiança na análise",
-    }}
-
-    ---
-
-    Dado o contexto, analise as notícias abaixo.
-    Se a lista estiver vazia ou se as notícias não forem condinzentes com a empresa e o contexto, você deve retornar um content vazio, sentiment NEUTRAL, com confidence 0.
+    import datetime
+    today = datetime.date.today().isoformat()
+    
+    user_prompt = f"""
+    Avalie os dados de Notícias da empresa {company_name} (Ticker: {ticker}, Mercado: {mercado_label}):
+    Data Ref: {today}
+    
+    NOTÍCIAS:
     {news}
     """
 
     try:
         agent = Agent(
-            system_message=prompt,
+            system_message=system_message,
             model=get_model(temperature=0.3),
             response_model=BaseAgentOutput,
             retries=3,
         )
-        response = agent.run('Faça uma análise das notícias')
+        response = agent.run(user_prompt)
         return response.content
     except Exception as e:
         print(f'Erro ao gerar análise.: {e}')

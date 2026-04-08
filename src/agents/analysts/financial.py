@@ -40,7 +40,7 @@ def analyze(ticker: str) -> str:
         dividends_by_year = []
         dividends_growth_by_year = []
 
-    prompt = f"""
+    system_message = """
     Você é um analista financeiro especializado em análise fundamentalista de demonstrações financeiras.
     Sua tarefa é analisar objetivamente os dados financeiros fornecidos e extrair conclusões imparciais sobre a qualidade dos números, saúde financeira e desempenho da empresa.
 
@@ -61,43 +61,18 @@ def analyze(ticker: str) -> str:
     - Não faça recomendações de investimento, apenas interprete os dados
 
     ## FORMATO DA SUA RESPOSTA
-    Sua análise deve ser estruturada em markdown e conter no máximo 500 palavras, seguindo este formato:
+    Sua análise deve ser estruturada em markdown e conter no máximo 500 palavras, seguindo este formato de painéis temáticos:
 
     ### PONTOS PRINCIPAIS DA ANÁLISE FINANCEIRA
-
-    #### Receita e Lucratividade
-    - [Interpretação concisa sobre crescimento, margens e tendências]
-    - [Interpretação sobre a qualidade dos dados financeiros, solidez e consistência da empresa]
-
-    #### Crescimento
-    - [Interpretação sobre o crescimento da empresa, incluindo crescimento de receita, lucro e dividendos]
-
-    #### Remuneração ao acionista
-    - [Interpretação sobre a remuneração ao acionista, incluindo dividendos e crescimento]
-
-    #### Estrutura de Capital e Solvência
-    - [Interpretação concisa sobre endividamento, liquidez e solidez financeira]
-
-    #### Eficiência Operacional
-    - [Interpretação concisa sobre uso de ativos, capital de giro e ciclos operacionais]
-    - [Interpretação sobre a geração de caixa operacional e livre]
+    (Receita, Lucratividade, Crescimento, Remuneração ao acionista, Estrutura de Capital, Solvência, Eficiência Operacional)
 
     #### CONCLUSÃO
     Uma síntese objetiva em 3-5 frases destacando os aspectos mais relevantes da análise e o que os números indicam sobre a situação atual da empresa.
-
     Lembre-se: sua análise deve ser factual, imparcial e baseada exclusivamente nos dados fornecidos.
+    """
 
-    ## FORMATO FINAL (IMPORTANTE)
-    Você deve estruturar a sua resposta em um JSON com a seguinte estrutura:
-    {{
-        "content": "Conteúdo markdown inteiro da sua análise",
-        "sentiment": "Seu sentimento sobre a análise, você deve escolher entre 'BULLISH', 'BEARISH', 'NEUTRAL'",
-        "confidence": "um valor entre 0 e 100, que representa sua confiança na análise",
-    }}
-
-    ---
-
-    Dado o contexto, analise os dados financeiros fornecidos.
+    user_prompt = f"""
+    Dado o contexto, analise os dados financeiros da empresa abaixo.
     Ticker: {ticker}
     Nome: {company_name}
     Setor: {segment}
@@ -125,12 +100,12 @@ def analyze(ticker: str) -> str:
 
     try:
         agent = Agent(
-            system_message=prompt,
+            system_message=system_message,
             model=get_model(temperature=0.3),
             response_model=BaseAgentOutput,
             retries=3,
         )
-        response = agent.run('Faça uma análise da empresa')
+        response = agent.run(user_prompt)
         return response.content
     except Exception as e:
         print(f'Erro ao gerar análise.: {e}')

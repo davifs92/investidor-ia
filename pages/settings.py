@@ -1,6 +1,5 @@
 import streamlit as st
 import os
-from pathlib import Path
 from dotenv import set_key, load_dotenv
 
 from src.settings import PROVIDER, MODEL, PROJECT_DIR

@@ -93,6 +93,8 @@ def analyze(
     financial_analysis: BaseAgentOutput,
     valuation_analysis: BaseAgentOutput,
     news_analysis: BaseAgentOutput,
+    macro_analysis: BaseAgentOutput = BaseAgentOutput(content="Não Fornecido", sentiment="NEUTRAL", confidence=0),
+    technical_analysis: BaseAgentOutput = BaseAgentOutput(content="Não Fornecido", sentiment="NEUTRAL", confidence=0),
 ) -> BaseAgentOutput:
     today = datetime.date.today()
     year_start = today.year - 5
@@ -102,10 +104,10 @@ def analyze(
     company_name = stocks.name(ticker)
     segment = stocks.details(ticker).get('segmento_de_atuacao', 'nan')
     multiples = stocks.multiples(ticker)
-    lastest_multiples = multiples[0]
+    lastest_multiples = multiples[0] if multiples else {}
     dre_year = stocks.income_statement(ticker, year_start, year_end, 'year')
-    cagr_5y_receita_liq = calc_cagr(dre_year, 'receita_liquida', 5)
-    cagr_5y_lucro_liq = calc_cagr(dre_year, 'lucro_liquido', 5)
+    calc_cagr(dre_year, 'receita_liquida', 5)
+    calc_cagr(dre_year, 'lucro_liquido', 5)
 
     _dividends_by_year = stocks.dividends_by_year(ticker)
     if _dividends_by_year:
@@ -116,14 +118,23 @@ def analyze(
             .drop_nulls()
             .to_dicts()
         )
-        # tira dados do ano atual pra nao poluir a análise do AI
-        dividends_by_year = [d for d in _dividends_by_year if d['ano'] < today.year]
+        [d for d in _dividends_by_year if d['ano'] < today.year]
         dividends_growth_by_year = [d for d in dividends_growth_by_year if d['ano'] < today.year]
     else:
-        dividends_by_year = []
         dividends_growth_by_year = []
 
     balance_sheet_quarter = stocks.balance_sheet(ticker, year_start, year_end, 'quarter')
+    df_balance = pl.DataFrame(balance_sheet_quarter) if balance_sheet_quarter else None
+    
+    ncav_status = "Desconhecido"
+    if df_balance is not None and "ativo_circulante" in df_balance.columns and "passivo_circulante" in df_balance.columns:
+        ativo_circ = df_balance["ativo_circulante"][0]
+        passivo_circ = df_balance["passivo_circulante"][0]
+        passivo_nao_circ = df_balance.get_column("passivo_nao_circulante")[0] if "passivo_nao_circulante" in df_balance.columns else 0
+        total_passivo = passivo_circ + passivo_nao_circ
+        
+        ncav = ativo_circ - total_passivo
+        ncav_status = f"O NCAV atual estimado bruto da companhia é {ncav:,.0f} BRL"
 
     classic_criteria = {
         'valor_de_mercado': f'{stock_details.get("valor_de_mercado", float("nan")):,.0f} BRL',
@@ -134,18 +145,13 @@ def analyze(
         'divida_bruta': stock_details.get('divida_bruta', float('nan')),
         'patrimonio_liquido': stock_details.get('patrimonio_liquido', float('nan')),
         'divida_menor_que_patrimonio_liquido': stock_details.get('divida_liquida', float('nan'))
-        < stock_details.get('patrimonio_liquido', float('nan')),
-        'crescimento_dividendos_anuais': dividends_growth_by_year,
-        'lucro_liquido_positivo_nos_ultimos_5_anos': all([d['lucro_liquido'] > 0 for d in dre_year]),
-        'cagr_5y_receita_liq': cagr_5y_receita_liq,
-        'cagr_5y_lucro_liq': cagr_5y_lucro_liq,
-        'ativo_circulante_sobre_passivo_circulante': pl.DataFrame(balance_sheet_quarter)
-        .with_columns(v=pl.col('ativo_circulante') / pl.col('passivo_circulante'))['v']
-        .round(4)[0],
+        < stock_details.get('patrimonio_liquido', float('nan') + 1),
+        'calculo_ncav_graham_puro': ncav_status,
+        'lucro_liquido_positivo_nos_ultimos_5_anos': all([d.get('lucro_liquido', 0) > 0 for d in dre_year]),
     }
 
     prompt = dedent(f"""
-    Dado o contexto, analise a empresa abaixo.
+    Dado o contexto, analise a empresa abaixo prestando extrema atenção no NCAV (cálculo fixo de Ativos Circ Totais subtraídos dos Passivos e Dívidas Totais).
     Nome: {company_name}
     Ticker: {ticker}
     Setor: {segment}
@@ -170,19 +176,17 @@ def analyze(
     Confiança: {news_analysis.confidence}
     Análise: {news_analysis.content}
 
+    ## MACROECONOMIA E CUSTO DE OPORTUNIDADE
+    {macro_analysis.content}
+
+    ## CONDIÇÕES GRÁFICAS E MÉDIAS MÓVEIS
+    {technical_analysis.content}
+
     ## DADOS FINANCEIROS DISPONÍVEIS
     {dre_year}
 
     ## CRITÉRIOS CLÁSSICOS CALCULADOS
     {classic_criteria}
-
-    ## FORMATO FINAL DA SUA RESPOSTA (**IMPORTANTE**)
-    Você deve estruturar a sua resposta em um JSON com a seguinte estrutura:
-    {{
-        "content": "Conteúdo markdown inteiro da sua análise",
-        "sentiment": "Seu sentimento sobre a análise, você deve escolher entre 'BULLISH', 'BEARISH', 'NEUTRAL'",
-        "confidence": "um valor entre 0 e 100, que representa sua confiança na análise",
-    }}
     """)
 
     agent = Agent(
@@ -193,5 +197,5 @@ def analyze(
         response_model=BaseAgentOutput,
         retries=3,
     )
-    r = agent.run(prompt)
+    r = agent.run(f"Data de Hoje: {today.isoformat()}\n\n" + prompt)
     return r.content

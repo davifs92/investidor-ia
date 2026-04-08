@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 from decouple import config
 
@@ -22,9 +21,27 @@ _DEFAULT_MODELS = {
 }
 MODEL = config('LLM_MODEL', default=_DEFAULT_MODELS.get(PROVIDER, ''))
 
+# Resolve the active API key based on the selected provider
+_API_KEY_MAP = {
+    'gemini': config('GOOGLE_API_KEY', default=''),
+    'claude': config('ANTHROPIC_API_KEY', default=''),
+    'openai': config('OPENAI_API_KEY', default=''),
+    'groq': config('GROQ_API_KEY', default=''),
+}
+API_KEY = _API_KEY_MAP.get(PROVIDER, '')
+
 # investors
-INVESTORS = {
+INVESTORS_BR = {
     'buffett': 'Warren Buffett',
     'graham': 'Benjamin Graham',
     'barsi': 'Luiz Barsi',
 }
+
+INVESTORS_US = {
+    'buffett': 'Warren Buffett',
+    'graham': 'Benjamin Graham',
+    'lynch': 'Peter Lynch',
+}
+
+# Retrocompatibilidade
+INVESTORS = INVESTORS_BR
