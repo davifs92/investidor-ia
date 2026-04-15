@@ -1,5 +1,6 @@
 import datetime
 from textwrap import dedent
+from typing import Literal
 
 import polars as pl
 from agno.agent import Agent
@@ -7,6 +8,7 @@ from agno.tools.reasoning import ReasoningTools
 
 from src.agents.base import BaseAgentOutput
 from src.data import stocks
+from src.portfolio.persona_interface import PortfolioPersonaInput, PortfolioPersonaOutput
 from src.utils import calc_cagr, get_model
 
 
@@ -87,67 +89,136 @@ Estruture sua análise em markdown seguindo este formato:
 """)
 
 
+_EMPTY = BaseAgentOutput(content="Não Fornecido", sentiment="NEUTRAL", confidence=0)
+
+
+def _analyze_portfolio(portfolio_data: PortfolioPersonaInput) -> BaseAgentOutput:
+    recommendation = _portfolio_recommendation(portfolio_data)
+    principal_weakness = portfolio_data.weaknesses[0] if portfolio_data.weaknesses else 'Fragilidade relevante não identificada.'
+    risk = portfolio_data.risks[0] if portfolio_data.risks else 'Risco principal não identificado.'
+    margin_view = (
+        'A estrutura atual preserva alguma margem de segurança na composição.'
+        if portfolio_data.overall_score >= 7
+        else 'A margem de segurança da carteira está apertada para o meu padrão conservador.'
+    )
+    content = dedent(f"""
+    ## Avaliação Estratégica da Carteira
+    Pela minha metodologia, o portfólio exibe **score {portfolio_data.overall_score:.1f}/10** e sentimento **{portfolio_data.portfolio_sentiment}**.
+    {margin_view}
+
+    ## Maiores Pontos de Atenção
+    Fragilidade dominante: {principal_weakness}
+    Maior risco identificado: {risk}
+
+    ## Conclusão
+    Minha recomendação objetiva é **{recommendation}**.
+    A prioridade deve ser reforçar margem de segurança e disciplina de preço frente ao valor intrínseco.
+    """).strip()
+    parsed = PortfolioPersonaOutput(
+        content=content,
+        sentiment=portfolio_data.portfolio_sentiment,
+        confidence=max(0, min(100, int(round(portfolio_data.weighted_confidence)))),
+        recommendation=recommendation,
+    )
+    return BaseAgentOutput(content=parsed.content, sentiment=parsed.sentiment, confidence=parsed.confidence)
+
+
+def _portfolio_recommendation(portfolio_data: PortfolioPersonaInput) -> Literal['MANTER', 'OBSERVAR', 'REBALANCEAR']:
+    if portfolio_data.overall_score >= 7.0 and portfolio_data.max_asset_weight <= 30:
+        return 'MANTER'
+    if portfolio_data.overall_score < 5.0 or portfolio_data.max_asset_weight > 38:
+        return 'REBALANCEAR'
+    return 'OBSERVAR'
+
+
 def analyze(
-    ticker: str,
-    earnings_release_analysis: BaseAgentOutput,
-    financial_analysis: BaseAgentOutput,
-    valuation_analysis: BaseAgentOutput,
-    news_analysis: BaseAgentOutput,
-    macro_analysis: BaseAgentOutput = BaseAgentOutput(content="Não Fornecido", sentiment="NEUTRAL", confidence=0),
-    technical_analysis: BaseAgentOutput = BaseAgentOutput(content="Não Fornecido", sentiment="NEUTRAL", confidence=0),
+    ticker: str = '',
+    earnings_release_analysis: BaseAgentOutput = _EMPTY,
+    financial_analysis: BaseAgentOutput = _EMPTY,
+    valuation_analysis: BaseAgentOutput = _EMPTY,
+    news_analysis: BaseAgentOutput = _EMPTY,
+    macro_analysis: BaseAgentOutput = _EMPTY,
+    technical_analysis: BaseAgentOutput = _EMPTY,
+    market: str | None = None,
+    analysis_mode: Literal['ticker', 'portfolio'] = 'ticker',
+    portfolio_data: PortfolioPersonaInput | None = None,
 ) -> BaseAgentOutput:
+    if analysis_mode == 'portfolio':
+        if portfolio_data is None:
+            raise ValueError('portfolio_data é obrigatório quando analysis_mode="portfolio".')
+        return _analyze_portfolio(portfolio_data)
+
     today = datetime.date.today()
     year_start = today.year - 5
     year_end = today.year
 
-    stock_details = stocks.details(ticker)
-    company_name = stocks.name(ticker)
-    segment = stocks.details(ticker).get('segmento_de_atuacao', 'nan')
-    multiples = stocks.multiples(ticker)
-    lastest_multiples = multiples[0] if multiples else {}
-    dre_year = stocks.income_statement(ticker, year_start, year_end, 'year')
-    calc_cagr(dre_year, 'receita_liquida', 5)
-    calc_cagr(dre_year, 'lucro_liquido', 5)
-
-    _dividends_by_year = stocks.dividends_by_year(ticker)
-    if _dividends_by_year:
-        dividends_growth_by_year = (
-            pl.DataFrame(_dividends_by_year)
-            .sort('ano')
-            .with_columns(valor=pl.col('valor').pct_change().round(4))
-            .drop_nulls()
-            .to_dicts()
-        )
-        [d for d in _dividends_by_year if d['ano'] < today.year]
-        dividends_growth_by_year = [d for d in dividends_growth_by_year if d['ano'] < today.year]
+    stock_details = stocks.details(ticker, market=market)
+    company_name = stocks.name(ticker, market=market)
+    segment = stock_details.get('segmento_de_atuacao', 'nan')
+    multiples = stocks.multiples(ticker, market=market)
+    lastest_multiples = multiples[0] if (multiples and isinstance(multiples, list) and len(multiples) > 0) else {}
+    dre_year = stocks.income_statement(ticker, year_start, year_end, 'annual', market=market)
+    
+    # Cálculos seguros de CAGR
+    if dre_year and len(dre_year) >= 2:
+        receita_cagr = calc_cagr(dre_year, 'receita_liquida', 5)
+        lucro_cagr = calc_cagr(dre_year, 'lucro_liquido', 5)
     else:
-        dividends_growth_by_year = []
+        receita_cagr = None
+        lucro_cagr = None
 
-    balance_sheet_quarter = stocks.balance_sheet(ticker, year_start, year_end, 'quarter')
-    df_balance = pl.DataFrame(balance_sheet_quarter) if balance_sheet_quarter else None
+    _dividends_by_year = stocks.dividends_by_year(ticker, market=market)
+    dividends_growth_by_year = []
+    if _dividends_by_year and len(_dividends_by_year) > 0:
+        try:
+            df_divs = pl.DataFrame(_dividends_by_year)
+            if "valor" in df_divs.columns and "ano" in df_divs.columns:
+                dividends_growth_by_year = (
+                    df_divs
+                    .sort('ano')
+                    .with_columns(valor=pl.col('valor').pct_change().round(4))
+                    .drop_nulls()
+                    .to_dicts()
+                )
+                # filtra anos passados
+                dividends_growth_by_year = [d for d in dividends_growth_by_year if d['ano'] < today.year]
+        except Exception as e:
+            print(f"Erro ao processar dividendos no Polars (Graham): {e}")
+
+    # Lista simples filtrada
+    dividends_by_year_filtered = [d for d in _dividends_by_year if d['ano'] < today.year] if _dividends_by_year else []
+
+    balance_sheet_quarter = stocks.balance_sheet(ticker, year_start, year_end, 'quarter', market=market)
+    df_balance = pl.DataFrame(balance_sheet_quarter) if (balance_sheet_quarter and len(balance_sheet_quarter) > 0) else None
     
     ncav_status = "Desconhecido"
     if df_balance is not None and "ativo_circulante" in df_balance.columns and "passivo_circulante" in df_balance.columns:
-        ativo_circ = df_balance["ativo_circulante"][0]
-        passivo_circ = df_balance["passivo_circulante"][0]
-        passivo_nao_circ = df_balance.get_column("passivo_nao_circulante")[0] if "passivo_nao_circulante" in df_balance.columns else 0
-        total_passivo = passivo_circ + passivo_nao_circ
-        
-        ncav = ativo_circ - total_passivo
-        ncav_status = f"O NCAV atual estimado bruto da companhia é {ncav:,.0f} BRL"
+        try:
+            ativo_circ = df_balance["ativo_circulante"][0] if len(df_balance) > 0 else 0
+            passivo_circ = df_balance["passivo_circulante"][0] if len(df_balance) > 0 else 0
+            passivo_nao_circ = df_balance.get_column("passivo_nao_circulante")[0] if ("passivo_nao_circulante" in df_balance.columns and len(df_balance) > 0) else 0
+            total_passivo = (ativo_circ * 0) + passivo_circ + passivo_nao_circ # gambiarra pra manter o tipo se for float/null
+            
+            ncav = ativo_circ - total_passivo
+            ncav_status = f"O NCAV atual estimado bruto da companhia é {ncav:,.0f} BRL"
+        except Exception:
+            ncav_status = "Erro ao calcular NCAV (dados incompletos)"
 
     classic_criteria = {
         'valor_de_mercado': f'{stock_details.get("valor_de_mercado", float("nan")):,.0f} BRL',
         'preco_sobre_lucro': lastest_multiples.get('p_l', float('nan')),
-        'preco_sobre_lucro_abaixo_15x': lastest_multiples.get('p_l', float('nan')) < 15,
+        'preco_sobre_lucro_abaixo_15x': lastest_multiples.get('p_l', float('nan')) < 15 if lastest_multiples.get('p_l') else False,
         'preco_sobre_valor_patrimonial': lastest_multiples.get('p_vp', float('nan')),
-        'preco_sobre_valor_patrimonial_abaixo_1.5x': lastest_multiples.get('p_vp', float('nan')) < 1.5,
+        'preco_sobre_valor_patrimonial_abaixo_1.5x': lastest_multiples.get('p_vp', float('nan')) < 1.5 if lastest_multiples.get('p_vp') else False,
+        'receita_cagr_5y': receita_cagr,
+        'lucro_cagr_5y': lucro_cagr,
         'divida_bruta': stock_details.get('divida_bruta', float('nan')),
         'patrimonio_liquido': stock_details.get('patrimonio_liquido', float('nan')),
         'divida_menor_que_patrimonio_liquido': stock_details.get('divida_liquida', float('nan'))
-        < stock_details.get('patrimonio_liquido', float('nan') + 1),
+        < stock_details.get('patrimonio_liquido', float('nan') + 1) if stock_details.get('divida_liquida') else False,
         'calculo_ncav_graham_puro': ncav_status,
-        'lucro_liquido_positivo_nos_ultimos_5_anos': all([d.get('lucro_liquido', 0) > 0 for d in dre_year]),
+        'lucro_liquido_positivo_nos_ultimos_5_anos': all([d.get('lucro_liquido', 0) > 0 for d in dre_year]) if dre_year else False,
+        'crescimento_dividendos_historico': dividends_growth_by_year,
     }
 
     prompt = dedent(f"""

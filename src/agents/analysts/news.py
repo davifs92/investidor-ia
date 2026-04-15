@@ -19,35 +19,50 @@ class News(TypedDict):
 
 
 def _search_news_einvestidor(ticker: str, company_name: str) -> list[News]:
-    results = DDGS().text(
-        f'notícias sobre a empresa {company_name} (ticker {ticker}) site:einvestidor.estadao.com.br',
-        max_results=5,
-        region='br-pt',
-        timelimit='3m',
-    )
+    try:
+        results = DDGS().text(
+            f'notícias sobre a empresa {company_name} (ticker {ticker}) site:einvestidor.estadao.com.br',
+            max_results=5,
+            region='br-pt',
+            timelimit='3m',
+        )
+        if not results:
+            return []
+    except Exception as e:
+        print(f"Erro ao buscar notícias (BR): {e}")
+        return []
 
     news = []
     for result in results:
-        url = result['href']
-        if '/tag/' in url:
+        try:
+            url = result['href']
+            if '/tag/' in url:
+                continue
+            r = requests.get(url, timeout=5)
+            soup = BeautifulSoup(r.text, 'html.parser')
+            soup_content = soup.find('div', class_='content-editor')
+            content = soup_content.text if soup_content else 'Conteúdo não encontrado'
+            news.append({'title': result['title'], 'url': url, 'body': result['body'], 'content': content})
+            time.sleep(1)
+        except Exception:
             continue
-        r = requests.get(url)
-        soup = BeautifulSoup(r.text, 'html.parser')
-        soup_content = soup.find('div', class_='content-editor')
-        content = soup_content.text if soup_content else 'Conteúdo não encontrado'
-        news.append({'title': result['title'], 'url': url, 'body': result['body'], 'content': content})
-        time.sleep(1)
 
     return news
 
 
 def _search_news_international(ticker: str, company_name: str) -> list[News]:
     """Busca notícias para tickers internacionais (NYSE/NASDAQ) via DuckDuckGo em fontes globais."""
-    results = DDGS().text(
-        f'{company_name} ({ticker}) stock news site:reuters.com OR site:finance.yahoo.com OR site:bloomberg.com OR site:cnbc.com',
-        max_results=5,
-        timelimit='1m',
-    )
+    try:
+        results = DDGS().text(
+            f'{company_name} ({ticker}) stock news site:reuters.com OR site:finance.yahoo.com OR site:bloomberg.com OR site:cnbc.com',
+            max_results=5,
+            timelimit='1m',
+        )
+        if not results:
+            return []
+    except Exception as e:
+        print(f"Erro ao buscar notícias (US): {e}")
+        return []
 
     news = []
     for result in results:
@@ -62,20 +77,43 @@ def _search_news_international(ticker: str, company_name: str) -> list[News]:
     return news
 
 
-def analyze(ticker: str) -> BaseAgentOutput:
-    company_name = stocks.name(ticker)
-    is_br = ticker.upper().endswith('.SA')
-
-    if is_br:
-        news = _search_news_einvestidor(ticker, company_name)
-        mercado_label = 'Brasil (B3)'
+def analyze(ticker: str, market: str | None = None) -> BaseAgentOutput:
+    company_name = stocks.name(ticker, market=market)
+    
+    # Se market for fornecido, usa ele. Caso contrário, fallback para o sufixo.
+    if market:
+        is_br = (market == 'BR')
     else:
-        news = _search_news_international(ticker, company_name)
+        is_br = ticker.upper().endswith('.SA')
+
+    # --- NOVO FLUXO DE NOTÍCIAS ---
+    # 1. Tenta buscar notícias via Provider (Yahoo Finance - Estável e Grátis)
+    try:
+        provider_news = stocks.news(ticker, market=market)
+    except Exception:
+        provider_news = []
+
+    # 2. Tenta buscar notícias via DuckDuckGo (Scraping - Fallback Secundário)
+    if is_br:
+        mercado_label = 'Brasil (B3)'
+        try:
+            ddg_news = _search_news_einvestidor(ticker, company_name)
+        except Exception:
+            ddg_news = []
+    else:
         mercado_label = 'Internacional (NYSE/NASDAQ)'
+        try:
+            ddg_news = _search_news_international(ticker, company_name)
+        except Exception:
+            ddg_news = []
+
+    # Consolida as notícias (prioridade para Provider)
+    all_news = provider_news + ddg_news
+    # ------------------------------
 
     system_message = """
     Você é um analista especializado em pesquisar e analisar notícias de mercado financeiro.
-    Sua tarefa é buscar e sintetizar as notícias mais relevantes sobre a empresa fornecida.
+    Sua tarefa é pesquisar e sintetizar as notícias mais relevantes sobre a empresa fornecida, baseando-se nos dados brutos carregados.
 
     ## OBJETIVOS DA ANÁLISE
     1. Identificar eventos significativos recentes que possam impactar a empresa
@@ -87,7 +125,7 @@ def analyze(ticker: str) -> BaseAgentOutput:
     ## SUA ANÁLISE
     - Resuma cada notícia lida em poucas frases
     - Ao final, forneça uma conclusão objetiva em 3-5 frases sobre o sentimento geral e o impacto de curto/médio prazo.
-    - Se não houver notícias coerentes na carga, retorne conteúdo vazio e sentimento NEUTRAL com confiança 0.
+    - Se não houver notícias coerentes na carga (lista vazia), retorne conteúdo vazio e sentimento NEUTRAL com confiança 0.
 
     ## DIRETRIZES
     - Mantenha objetividade na análise
@@ -101,8 +139,8 @@ def analyze(ticker: str) -> BaseAgentOutput:
     Avalie os dados de Notícias da empresa {company_name} (Ticker: {ticker}, Mercado: {mercado_label}):
     Data Ref: {today}
     
-    NOTÍCIAS:
-    {news}
+    NOTÍCIAS CARREGADAS:
+    {all_news}
     """
 
     try:
@@ -115,5 +153,5 @@ def analyze(ticker: str) -> BaseAgentOutput:
         response = agent.run(user_prompt)
         return response.content
     except Exception as e:
-        print(f'Erro ao gerar análise.: {e}')
-        return BaseAgentOutput(content='Erro ao gerar análise.', sentiment='NEUTRAL', confidence=0)
+        print(f'Erro ao gerar análise de notícias: {e}')
+        return BaseAgentOutput(content='Erro ao gerar análise de notícias.', sentiment='NEUTRAL', confidence=0)

@@ -4,12 +4,18 @@ from src.data_providers.base import BaseDataProvider
 
 class MarketRouter:
     @staticmethod
-    def get_provider(ticker: str) -> BaseDataProvider:
+    def get_provider(ticker: str, market: str | None = None) -> BaseDataProvider:
         """
-        Roteador multi-mercado que identifica o país através da formatação do Ticker.
-        - Tickers com sufixo .SA são roteados para o Provider Brasil (Fundamentus/StatusInvest)
-        - Tickers internacionais são roteados para o Provider Americano (yfinance)
+        Roteador multi-mercado.
+        - Se 'market' for fornecido ('BR' ou 'US'), usa o provedor correspondente.
+        - Caso contrário, identifica o país através da formatação do Ticker (.SA).
         """
+        if market == 'BR':
+            return BRDataProvider()
+        if market == 'US':
+            return USDataProvider()
+            
         if ticker.upper().endswith('.SA'):
             return BRDataProvider()
+            
         return USDataProvider()

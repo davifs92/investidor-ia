@@ -1,6 +1,8 @@
 import pytest
 import pandas as pd
 from datetime import datetime
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from src.market_router import MarketRouter
 from src.data_providers.us.provider import USDataProvider
@@ -47,9 +49,49 @@ def test_us_data_provider_normalize_df():
     assert normalized[1]['data'] == '2022-12-31'
     assert normalized[1]['lucro_liquido'] == 400.0
 
-def test_us_provider_earnings_release_stub():
-    """Garante que caso o EDGAR não devolva nada, a string default não deixe o código quebrar em None."""
+@patch('src.data_providers.us.provider.sec_client.get_cik', return_value=None)
+def test_us_provider_earnings_release_stub(mock_get_cik):
+    """Garante que, sem CIK no EDGAR, o provider retorna mensagem padrão em string."""
     provider = USDataProvider()
-    texto = provider.earnings_release_text("MOCKTICKER")
-    assert "Earnings Release" in texto or "SEC EDGAR" in texto
+    texto = provider.earnings_release("MOCKTICKER")
     assert isinstance(texto, str)
+    assert "Earnings" in texto or "SEC" in texto or "CIK" in texto
+
+
+@patch('src.data_providers.us.provider._yf_call', side_effect=lambda fn, *a, **k: fn())
+@patch('src.data_providers.us.provider.yf.Ticker')
+def test_us_details_uses_fast_info_price_when_info_is_empty(mock_ticker_class, mock_yf_call):
+    provider = USDataProvider()
+
+    fake_ticker = SimpleNamespace(
+        info={},
+        fast_info=SimpleNamespace(last_price=321.45),
+        history=lambda period="5d": pd.DataFrame({'Close': [300.0, 320.0]}),
+    )
+    mock_ticker_class.return_value = fake_ticker
+
+    result = provider.details('MSFT')
+
+    assert result['nome'] == 'MSFT'
+    assert result['preco'] == 321.45
+    assert 'Timeout Yahoo' in result['descricao']
+
+
+@patch('src.data_providers.us.provider._yf_call', side_effect=lambda fn, *a, **k: fn())
+@patch('src.data_providers.us.provider.yf.Ticker')
+def test_us_multiples_uses_fallback_price_when_info_is_empty(mock_ticker_class, mock_yf_call):
+    provider = USDataProvider()
+
+    fake_ticker = SimpleNamespace(
+        info={},
+        fast_info=SimpleNamespace(last_price=412.98),
+        history=lambda period="5d": pd.DataFrame({'Close': [410.0, 412.0]}),
+    )
+    mock_ticker_class.return_value = fake_ticker
+
+    result = provider.multiples('MSFT')
+
+    assert isinstance(result, list)
+    assert len(result) == 1
+    assert result[0]['preco_atual'] == 412.98
+    assert result[0]['ano'] == 'LTM (Preço apenas)'

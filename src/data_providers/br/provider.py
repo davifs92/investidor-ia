@@ -7,9 +7,13 @@ from . import statusinvest, fundamentus
 class BRDataProvider(BaseDataProvider):
     """Provedor de dados para o mercado brasileiro (B3). Utiliza StatusInvest e Fundamentus sob o capô."""
     
+    def _clean_ticker(self, ticker: str) -> str:
+        """Remove sufixos de mercado para compatibilidade com APIs brasileiras."""
+        return ticker.upper().replace('.SA', '').strip()
+
     @cache_it
     def details(self, ticker: str) -> dict:
-        return statusinvest.details(ticker)
+        return statusinvest.details(self._clean_ticker(ticker))
 
     @cache_it
     def name(self, ticker: str) -> str:
@@ -23,7 +27,7 @@ class BRDataProvider(BaseDataProvider):
         year_end: int | None = None,
         period: Literal['annual', 'quarter'] = 'annual',
     ) -> dict:
-        return statusinvest.income_statement(ticker, year_start, year_end, period)
+        return statusinvest.income_statement(self._clean_ticker(ticker), year_start, year_end, period)
 
     @cache_it
     def balance_sheet(
@@ -33,7 +37,7 @@ class BRDataProvider(BaseDataProvider):
         year_end: int | None = None,
         period: Literal['annual', 'quarter'] = 'annual',
     ) -> dict:
-        return statusinvest.balance_sheet(ticker, year_start, year_end, period)
+        return statusinvest.balance_sheet(self._clean_ticker(ticker), year_start, year_end, period)
 
     @cache_it
     def cash_flow(
@@ -42,15 +46,15 @@ class BRDataProvider(BaseDataProvider):
         year_start: int | None = None, 
         year_end: int | None = None
     ) -> dict:
-        return statusinvest.cash_flow(ticker, year_start, year_end)
+        return statusinvest.cash_flow(self._clean_ticker(ticker), year_start, year_end)
 
     @cache_it
     def multiples(self, ticker: str) -> dict:
-        return statusinvest.multiples(ticker)
+        return statusinvest.multiples(self._clean_ticker(ticker))
 
     @cache_it
     def dividends(self, ticker: str) -> list[dict]:
-        return statusinvest.dividends(ticker)
+        return statusinvest.dividends(self._clean_ticker(ticker))
 
     @cache_it
     def dividends_by_year(self, ticker: str) -> list[dict]:
@@ -72,14 +76,15 @@ class BRDataProvider(BaseDataProvider):
 
     @cache_it
     def payouts(self, ticker: str) -> list[dict]:
-        return statusinvest.payouts(ticker)
+        return statusinvest.payouts(self._clean_ticker(ticker))
 
     @cache_it
     def earnings_release_pdf_path(self, ticker: str) -> str:
-        results_trimestrais = fundamentus.resultados_trimestrais(ticker)
+        clean_t = self._clean_ticker(ticker)
+        results_trimestrais = fundamentus.resultados_trimestrais(clean_t)
         download_link = results_trimestrais[0]['download_link'] if results_trimestrais else None
         if not download_link:
-            apres = fundamentus.apresentacoes(ticker)
+            apres = fundamentus.apresentacoes(clean_t)
             download_link = apres[0]['download_link'] if apres else None
 
         if not download_link:
@@ -97,5 +102,28 @@ class BRDataProvider(BaseDataProvider):
             return tmp_path
         except Exception as e:
             raise ValueError(f"Faha no download do arquivo PDF: {e}")
+
+    @cache_it
+    def news(self, ticker: str) -> list[dict]:
+        import yfinance as yf
+        try:
+            # Para o Brasil, o yfinance precisa do sufixo .SA
+            clean_t = self._clean_ticker(ticker)
+            tk = yf.Ticker(f"{clean_t}.SA")
+            yf_news = tk.news
+            if not yf_news:
+                return []
+            
+            result = []
+            for item in yf_news[:8]:
+                result.append({
+                    'title': item.get('title', ''),
+                    'url': item.get('link', ''),
+                    'body': item.get('publisher', ''),
+                    'content': item.get('title', '')
+                })
+            return result
+        except Exception:
+            return []
 
 

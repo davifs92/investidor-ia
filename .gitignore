@@ -46,3 +46,8 @@ dist/
 ROADMAP.md
 agents.md
 session_decisions.md
+.codex
+MEMORIA_IMPLEMENTACAO_PORTFOLIO.md
+SESSAO_ESTABILIZACAO_US.md
+FUNCIONALIDADES_SISTEMA.md
+test_yf.py

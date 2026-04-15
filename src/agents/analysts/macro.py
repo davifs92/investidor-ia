@@ -44,8 +44,12 @@ def get_fed_funds() -> str:
     except Exception:
         return "5.25 (Fallback Mode)"
 
-def analyze(ticker: str) -> BaseAgentOutput:
-    is_br = ticker.upper().endswith(".SA")
+def analyze(ticker: str, market: str | None = None) -> BaseAgentOutput:
+    # Se market for fornecido, usa ele. Caso contrário, fallback para o sufixo.
+    if market:
+        is_br = (market == 'BR')
+    else:
+        is_br = ticker.upper().endswith('.SA')
 
     if is_br:
         taxa = get_selic()

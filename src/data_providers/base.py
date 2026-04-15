@@ -63,3 +63,8 @@ class BaseDataProvider(ABC):
     def earnings_release_pdf_path(self, ticker: str) -> str:
         pass
 
+    @abstractmethod
+    def news(self, ticker: str) -> list[dict]:
+        """Retorna uma lista de notícias para o ticker fornecido."""
+        pass
+

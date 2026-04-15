@@ -1,9 +1,11 @@
 import datetime
 from textwrap import dedent
+from typing import Literal
 from agno.agent import Agent
 from agno.tools.reasoning import ReasoningTools
 from src.agents.base import BaseAgentOutput
 from src.data import stocks
+from src.portfolio.persona_interface import PortfolioPersonaInput, PortfolioPersonaOutput
 from src.utils import get_model, calc_cagr
 
 SYSTEM_PROMPT = dedent("""
@@ -29,24 +31,82 @@ INSTRUCTIONS = dedent("""
 Use argumentos verbais coesos e bem fundamentados nos dados fornecidos.
 """)
 
+_EMPTY = BaseAgentOutput(content="Não Fornecido", sentiment="NEUTRAL", confidence=0)
+
+
+def _validate_lynch_market(portfolio_data: PortfolioPersonaInput):
+    br_weight = float(portfolio_data.market_weights.get('BR', 0.0))
+    if br_weight > 0:
+        raise ValueError('Persona Lynch suporta apenas carteira US no modo portfólio.')
+
+
+def _analyze_portfolio(portfolio_data: PortfolioPersonaInput) -> BaseAgentOutput:
+    _validate_lynch_market(portfolio_data)
+    recommendation = _portfolio_recommendation(portfolio_data)
+    top = ', '.join(f'{h.ticker} ({h.weight:.1f}%)' for h in portfolio_data.top_holdings[:3]) or 'Sem dados'
+    risk = portfolio_data.risks[0] if portfolio_data.risks else 'Risco principal não identificado.'
+    garp_view = (
+        'Vejo uma base razoável de crescimento sustentável com disciplina de preço.'
+        if portfolio_data.overall_score >= 7
+        else 'A carteira ainda não está equilibrando bem crescimento e preço razoável (GARP).'
+    )
+    content = dedent(f"""
+    ## Avaliação Estratégica da Carteira
+    No meu framework, o portfólio marca **{portfolio_data.overall_score:.1f}/10** com sentimento **{portfolio_data.portfolio_sentiment}**.
+    Principais posições: {top}.
+    {garp_view}
+
+    ## Riscos Principais
+    Maior risco identificado: {risk}
+    Vou manter atenção especial em concentração e em sinais que indiquem crescimento sem sustentação.
+
+    ## Conclusão
+    Minha recomendação é **{recommendation}**.
+    O ideal é priorizar empresas que cresçam com consistência e valuation ainda justificável.
+    """).strip()
+    parsed = PortfolioPersonaOutput(
+        content=content,
+        sentiment=portfolio_data.portfolio_sentiment,
+        confidence=max(0, min(100, int(round(portfolio_data.weighted_confidence)))),
+        recommendation=recommendation,
+    )
+    return BaseAgentOutput(content=parsed.content, sentiment=parsed.sentiment, confidence=parsed.confidence)
+
+
+def _portfolio_recommendation(portfolio_data: PortfolioPersonaInput) -> Literal['MANTER', 'OBSERVAR', 'REBALANCEAR']:
+    if portfolio_data.overall_score >= 7.0 and portfolio_data.max_asset_weight <= 35:
+        return 'MANTER'
+    if portfolio_data.overall_score < 5.0 or portfolio_data.max_asset_weight > 40:
+        return 'REBALANCEAR'
+    return 'OBSERVAR'
+
+
 def analyze(
-    ticker: str,
-    earnings_release_analysis: BaseAgentOutput,
-    financial_analysis: BaseAgentOutput,
-    valuation_analysis: BaseAgentOutput,
-    news_analysis: BaseAgentOutput,
-    macro_analysis: BaseAgentOutput = BaseAgentOutput(content="Não Fornecido", sentiment="NEUTRAL", confidence=0),
-    technical_analysis: BaseAgentOutput = BaseAgentOutput(content="Não Fornecido", sentiment="NEUTRAL", confidence=0),
+    ticker: str = '',
+    earnings_release_analysis: BaseAgentOutput = _EMPTY,
+    financial_analysis: BaseAgentOutput = _EMPTY,
+    valuation_analysis: BaseAgentOutput = _EMPTY,
+    news_analysis: BaseAgentOutput = _EMPTY,
+    macro_analysis: BaseAgentOutput = _EMPTY,
+    technical_analysis: BaseAgentOutput = _EMPTY,
+    market: str | None = None,
+    analysis_mode: Literal['ticker', 'portfolio'] = 'ticker',
+    portfolio_data: PortfolioPersonaInput | None = None,
 ) -> BaseAgentOutput:
+    if analysis_mode == 'portfolio':
+        if portfolio_data is None:
+            raise ValueError('portfolio_data é obrigatório quando analysis_mode="portfolio".')
+        return _analyze_portfolio(portfolio_data)
+
     today = datetime.date.today()
     year_start = today.year - 5
 
-    company_name = stocks.name(ticker)
-    segment = stocks.details(ticker).get('segmento_de_atuacao', 'N/A')
-    multiples = stocks.multiples(ticker)
+    company_name = stocks.name(ticker, market=market)
+    segment = stocks.details(ticker, market=market).get('segmento_de_atuacao', 'N/A')
+    multiples = stocks.multiples(ticker, market=market)
     latest = multiples[0] if multiples else {}
 
-    dre_year = stocks.income_statement(ticker, year_start, today.year, 'annual')
+    dre_year = stocks.income_statement(ticker, year_start, today.year, 'annual', market=market)
     cagr_5y_lucro = calc_cagr(dre_year, 'lucro_liquido', 5) if len(dre_year) >= 2 else None
 
     # PEG Ratio: P/L dividido pela taxa de crescimento do lucro (em %)
@@ -99,4 +159,3 @@ def analyze(
     )
     r = agent.run(f"Data de Hoje: {today.isoformat()}\n\n" + prompt)
     return r.content
-

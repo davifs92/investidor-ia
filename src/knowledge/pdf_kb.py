@@ -1,5 +1,9 @@
 from agno.knowledge.pdf import PDFKnowledgeBase, PDFReader
 from agno.vectordb.lancedb import LanceDb, SearchType
+from agno.embedder.openai import OpenAIEmbedder
+from agno.embedder.google import GeminiEmbedder
+
+from src.settings import PROVIDER, API_KEY
 
 def get_earnings_kb(pdf_path: str, ticker: str) -> PDFKnowledgeBase:
     """
@@ -14,10 +18,18 @@ def get_earnings_kb(pdf_path: str, ticker: str) -> PDFKnowledgeBase:
         search_type=SearchType.vector,
     )
 
+    # Seleciona o embedder baseado no provider
+    if PROVIDER == 'gemini':
+        embedder = GeminiEmbedder(api_key=API_KEY)
+    else:
+        # Default para OpenAI, garantindo que a chave seja passada
+        embedder = OpenAIEmbedder(api_key=API_KEY)
+
     knowledge_base = PDFKnowledgeBase(
         path=pdf_path,
         vector_db=vector_db,
-        reader=PDFReader(chunk=True)
+        reader=PDFReader(chunk=True),
+        embedder=embedder
     )
 
     # Carrega os vetores destrutivamente para garantir o relatório novo toda a vez que rodar

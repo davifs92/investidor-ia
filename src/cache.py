@@ -7,6 +7,8 @@ from src.settings import CACHE_DIR
 
 cache = diskcache.Cache(str(CACHE_DIR))
 
+_SENTINEL = object()  # token para distinguir 'não cacheado' de 'cacheado com valor vazio/falsy'
+
 
 def cache_it(
     func: Callable,
@@ -14,10 +16,12 @@ def cache_it(
 ) -> Callable:
     def wrapper(*args, **kwargs):
         key = f'{func.__name__}:{args}:{kwargs}'
-        result = cache.get(key)
-        if result is None:
+        result = cache.get(key, default=_SENTINEL)
+        if result is _SENTINEL:
             result = func(*args, **kwargs)
-            cache.set(key, result, expire=expire)
+            # Só cacheia se o resultado for útil (não vazio ou None)
+            if result is not None and result != [] and result != {}:
+                cache.set(key, result, expire=expire)
         return result
 
     return wrapper

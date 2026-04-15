@@ -7,7 +7,21 @@ from agno.models.openai import OpenAIChat
 from agno.models.groq import Groq
 
 
-from src.settings import PROVIDER, MODEL
+import os
+from src.settings import PROVIDER, MODEL, API_KEY
+
+
+def sync_envs():
+    """Injeta as chaves do .env no os.environ para satisfazer dependências do Agno/OpenAI/Google."""
+    if API_KEY:
+        if PROVIDER == 'gemini':
+            os.environ['GOOGLE_API_KEY'] = API_KEY
+        elif PROVIDER == 'openai':
+            os.environ['OPENAI_API_KEY'] = API_KEY
+        elif PROVIDER == 'claude':
+            os.environ['ANTHROPIC_API_KEY'] = API_KEY
+        elif PROVIDER == 'groq':
+            os.environ['GROQ_API_KEY'] = API_KEY
 
 
 def pdf_to_text(pdf_path: str) -> str:
@@ -41,19 +55,19 @@ def get_model(temperature: float = 0.3) -> Model:
         - openai   → GPT (ex: gpt-4o)
         - groq     → Groq (ex: llama-3.3-70b-versatile)
     """
+    sync_envs()
     provider = PROVIDER.lower().strip()
     
     if provider == 'gemini':
-        # API Key auto-detected by Agno from GOOGLE_API_KEY env var
-        return Gemini(id=MODEL, temperature=temperature)
+        return Gemini(id=MODEL, temperature=temperature, api_key=API_KEY)
     elif provider == 'claude':
-        # API Key auto-detected by Agno from ANTHROPIC_API_KEY env var
-        return Claude(id=MODEL, temperature=temperature)
+        return Claude(id=MODEL, temperature=temperature, api_key=API_KEY)
     elif provider == 'openai':
-        # API Key auto-detected by Agno from OPENAI_API_KEY env var
-        return OpenAIChat(id=MODEL, temperature=temperature)
+        # Modelos da série 'o1' e modelos 'mini' podem ter restrições de temperatura != 1
+        if 'o1' in MODEL or 'mini' in MODEL:
+            return OpenAIChat(id=MODEL, api_key=API_KEY)
+        return OpenAIChat(id=MODEL, temperature=temperature, api_key=API_KEY)
     elif provider == 'groq':
-        # API Key auto-detected by Agno from GROQ_API_KEY env var
-        return Groq(id=MODEL, temperature=temperature)
+        return Groq(id=MODEL, temperature=temperature, api_key=API_KEY)
     else:
         raise ValueError(f'Provider "{PROVIDER}" não suportado. Use um dos configurados em .env: gemini, claude, openai ou groq.')

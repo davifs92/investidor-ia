@@ -4,8 +4,6 @@ from dotenv import set_key, load_dotenv
 
 from src.settings import PROVIDER, MODEL, PROJECT_DIR
 
-st.set_page_config(layout='centered')
-
 st.title('Configurações')
 st.divider()
 
@@ -34,17 +32,23 @@ google_key = st.text_input('GOOGLE_API_KEY', type='password', value=os.environ.g
 anthropic_key = st.text_input('ANTHROPIC_API_KEY', type='password', value=os.environ.get('ANTHROPIC_API_KEY', ''))
 openai_key = st.text_input('OPENAI_API_KEY', type='password', value=os.environ.get('OPENAI_API_KEY', ''))
 groq_key = st.text_input('GROQ_API_KEY', type='password', value=os.environ.get('GROQ_API_KEY', ''))
+alpha_vantage_key = st.text_input('ALPHAVANTAGE_API_KEY', type='password', value=os.environ.get('ALPHAVANTAGE_API_KEY', ''))
 
 st.divider()
 
 if st.button('Salvar Requer Reinício'):
     set_key(env_file, 'LLM_PROVIDER', provider)
     set_key(env_file, 'LLM_MODEL', model)
-    
-    if google_key: set_key(env_file, 'GOOGLE_API_KEY', google_key)
-    if anthropic_key: set_key(env_file, 'ANTHROPIC_API_KEY', anthropic_key)
-    if openai_key: set_key(env_file, 'OPENAI_API_KEY', openai_key)
-    if groq_key: set_key(env_file, 'GROQ_API_KEY', groq_key)
-    
-    st.success('Configurações salvas no arquivo .env! Reinicie o app para aplicar.')
 
+    if google_key:
+        set_key(env_file, 'GOOGLE_API_KEY', google_key)
+    if anthropic_key:
+        set_key(env_file, 'ANTHROPIC_API_KEY', anthropic_key)
+    if openai_key:
+        set_key(env_file, 'OPENAI_API_KEY', openai_key)
+    if groq_key:
+        set_key(env_file, 'GROQ_API_KEY', groq_key)
+    if alpha_vantage_key:
+        set_key(env_file, 'ALPHAVANTAGE_API_KEY', alpha_vantage_key)
+
+    st.success('Configurações salvas no arquivo .env! Reinicie o app para aplicar.')

@@ -6,17 +6,82 @@ from src.agents.base import BaseAgentOutput
 from src.data import stocks
 
 
-def analyze(ticker: str) -> str:
-    details = stocks.details(ticker)
-    _screener = stocks.screener()
+def _get_us_peer_candidates(segment: str) -> list[str]:
+    segment_l = (segment or '').lower()
+    if 'technology' in segment_l or 'software' in segment_l or 'tecnologia' in segment_l:
+        return ['AAPL', 'GOOGL', 'META', 'NVDA', 'ORCL', 'ADBE', 'CRM']
+    if 'financial' in segment_l or 'bank' in segment_l or 'banc' in segment_l:
+        return ['JPM', 'BAC', 'WFC', 'C', 'MS', 'GS']
+    if 'health' in segment_l or 'pharma' in segment_l or 'biotech' in segment_l:
+        return ['JNJ', 'PFE', 'MRK', 'ABBV', 'LLY', 'AMGN']
+    if 'consumer' in segment_l or 'retail' in segment_l:
+        return ['AMZN', 'WMT', 'COST', 'HD', 'MCD', 'SBUX']
+    if 'industrial' in segment_l:
+        return ['CAT', 'GE', 'DE', 'HON', 'ETN', 'MMM']
+    if 'energy' in segment_l or 'oil' in segment_l:
+        return ['XOM', 'CVX', 'COP', 'SLB', 'EOG']
+    return ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'NVDA', 'JPM', 'XOM']
+
+
+def _extract_peer_row(ticker: str) -> dict | None:
+    multiples = stocks.multiples(ticker, market='US')
+    if not multiples or not isinstance(multiples, list):
+        return None
+    base = multiples[0]
+    row = {
+        'ticker': ticker,
+        'p_l': base.get('p_l', 0.0) or 0.0,
+        'p_vp': base.get('p_vp', 0.0) or 0.0,
+        'dy': base.get('dy', 0.0) or 0.0,
+        'roe': base.get('roe', 0.0) or 0.0,
+        'margem_liquida': base.get('margem_liquida', 0.0) or 0.0,
+        'ev_ebitda': base.get('ev_ebitda', 0.0) or 0.0,
+    }
+    # só considera peer com pelo menos 1 múltiplo válido (> 0)
+    if all((row[k] == 0.0 for k in ('p_l', 'p_vp', 'dy', 'roe', 'margem_liquida', 'ev_ebitda'))):
+        return None
+    return row
+
+
+def _us_peers_snapshot(segment: str, current_ticker: str) -> tuple[str, str, str]:
+    peer_candidates = [t for t in _get_us_peer_candidates(segment) if t != current_ticker.upper()]
+    peer_rows = []
+    for peer in peer_candidates[:6]:
+        row = _extract_peer_row(peer)
+        if row:
+            peer_rows.append(row)
+
+    if not peer_rows:
+        return (
+            'N/A (peers US sem dados suficientes no momento)',
+            'N/A',
+            'N/A',
+        )
+
+    peers_df = pl.DataFrame(peer_rows)
+    peers_mean = peers_df.mean()
+    peers_median = peers_df.median()
+    peers_used = ', '.join([r['ticker'] for r in peer_rows])
+    peers_used_text = f'Peers usados ({len(peer_rows)}): {peers_used}'
+    return str(peers_mean), str(peers_median), peers_used_text
+
+
+def analyze(ticker: str, market: str | None = None) -> str:
+    details = stocks.details(ticker, market=market)
+    _screener = stocks.screener(market=market)
 
 
     company_name = details['nome']
     segment = details.get('segmento_de_atuacao', 'nan')
     current_price = details.get('preco', float('nan'))
-    five_years_historical_multiples = stocks.multiples(ticker)[:5]
+    five_years_historical_multiples = stocks.multiples(ticker, market=market)
+    if isinstance(five_years_historical_multiples, list):
+        five_years_historical_multiples = five_years_historical_multiples[:5]
+    else:
+        five_years_historical_multiples = []
 
     # Guard: screener pode ser vazio para tickers US (screener não implementado p/ US provider)
+    # Também verifica se a coluna de segmento existe para evitar erros de filtro
     if _screener:
         screener = (
             pl.DataFrame(_screener)
@@ -25,13 +90,27 @@ def analyze(ticker: str) -> str:
             .unique('stock', keep='last')
             .filter(pl.col('price') > 0, pl.col('liquidezmediadiaria') > 0)
         )
-        sector_multiples_mean = screener.filter(pl.col('segmentname') == segment).mean()
-        sector_multiples_median = screener.filter(pl.col('segmentname') == segment).median()
+        
+        # Fallback: se não houver coluna de segmento, usa a média geral do mercado
+        if 'segmentname' in screener.columns:
+            sector_multiples_mean = screener.filter(pl.col('segmentname') == segment).mean()
+            sector_multiples_median = screener.filter(pl.col('segmentname') == segment).median()
+        else:
+            sector_multiples_mean = "N/A (Segmento não disponível nos dados atuais)"
+            sector_multiples_median = "N/A"
+            
         total_market_multiples_median = screener.median()
     else:
-        sector_multiples_mean = 'N/A (dados de setor não disponíveis para este mercado)'
-        sector_multiples_median = 'N/A'
-        total_market_multiples_median = 'N/A (screener não disponível para mercado US)'
+        if market == 'US':
+            (
+                sector_multiples_mean,
+                sector_multiples_median,
+                total_market_multiples_median,
+            ) = _us_peers_snapshot(segment, ticker)
+        else:
+            sector_multiples_mean = 'N/A (dados de setor não disponíveis para este mercado)'
+            sector_multiples_median = 'N/A'
+            total_market_multiples_median = 'N/A (screener não disponível para este mercado)'
 
     system_message = """
     Você é um analista especializado em valuation relativo de empresas. 

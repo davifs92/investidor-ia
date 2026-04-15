@@ -1,5 +1,6 @@
 import datetime
 from textwrap import dedent
+from typing import Literal
 
 import polars as pl
 from agno.agent import Agent
@@ -7,6 +8,7 @@ from agno.tools.reasoning import ReasoningTools
 
 from src.agents.base import BaseAgentOutput
 from src.data import stocks
+from src.portfolio.persona_interface import PortfolioPersonaInput, PortfolioPersonaOutput
 from src.utils import calc_cagr, get_model
 
 
@@ -55,51 +57,124 @@ Apesar disso:
 """)
 
 
+_EMPTY = BaseAgentOutput(content="Não Fornecido", sentiment="NEUTRAL", confidence=0)
+
+
+def _validate_barsi_market(portfolio_data: PortfolioPersonaInput):
+    us_weight = float(portfolio_data.market_weights.get('US', 0.0))
+    if us_weight > 0:
+        raise ValueError('Persona Barsi suporta apenas carteira BR no modo portfólio.')
+
+
+def _analyze_portfolio(portfolio_data: PortfolioPersonaInput) -> BaseAgentOutput:
+    _validate_barsi_market(portfolio_data)
+    recommendation = _portfolio_recommendation(portfolio_data)
+    principal_risk = portfolio_data.risks[0] if portfolio_data.risks else 'Risco principal não identificado.'
+    renda_view = (
+        'A carteira mostra disciplina de longo prazo para renda recorrente.'
+        if portfolio_data.overall_score >= 7
+        else 'Ainda falta consistência para transformar a carteira em renda previsível de longo prazo.'
+    )
+    content = dedent(f"""
+    ## Avaliação Estratégica da Carteira
+    Pelo meu método previdenciário, vejo **score {portfolio_data.overall_score:.1f}/10** e sentimento **{portfolio_data.portfolio_sentiment}**.
+    {renda_view}
+
+    ## Riscos e Continuidade de Renda
+    Maior risco hoje: {principal_risk}
+    Para minha filosofia, a carteira precisa proteger fluxo de dividendos e evitar concentração excessiva.
+
+    ## Conclusão
+    Minha recomendação final é **{recommendation}**.
+    O foco deve seguir em qualidade de empresas brasileiras com histórico consistente de distribuição.
+    """).strip()
+    parsed = PortfolioPersonaOutput(
+        content=content,
+        sentiment=portfolio_data.portfolio_sentiment,
+        confidence=max(0, min(100, int(round(portfolio_data.weighted_confidence)))),
+        recommendation=recommendation,
+    )
+    return BaseAgentOutput(content=parsed.content, sentiment=parsed.sentiment, confidence=parsed.confidence)
+
+
+def _portfolio_recommendation(portfolio_data: PortfolioPersonaInput) -> Literal['MANTER', 'OBSERVAR', 'REBALANCEAR']:
+    if portfolio_data.overall_score >= 7.0 and portfolio_data.max_asset_weight <= 32:
+        return 'MANTER'
+    if portfolio_data.overall_score < 5.0 or portfolio_data.max_asset_weight > 38:
+        return 'REBALANCEAR'
+    return 'OBSERVAR'
+
+
 def analyze(
-    ticker: str,
-    earnings_release_analysis: BaseAgentOutput,
-    financial_analysis: BaseAgentOutput,
-    valuation_analysis: BaseAgentOutput,
-    news_analysis: BaseAgentOutput,
-    macro_analysis: BaseAgentOutput = BaseAgentOutput(content="Não Fornecido", sentiment="NEUTRAL", confidence=0),
-    technical_analysis: BaseAgentOutput = BaseAgentOutput(content="Não Fornecido", sentiment="NEUTRAL", confidence=0),
+    ticker: str = '',
+    earnings_release_analysis: BaseAgentOutput = _EMPTY,
+    financial_analysis: BaseAgentOutput = _EMPTY,
+    valuation_analysis: BaseAgentOutput = _EMPTY,
+    news_analysis: BaseAgentOutput = _EMPTY,
+    macro_analysis: BaseAgentOutput = _EMPTY,
+    technical_analysis: BaseAgentOutput = _EMPTY,
+    market: str | None = None,
+    analysis_mode: Literal['ticker', 'portfolio'] = 'ticker',
+    portfolio_data: PortfolioPersonaInput | None = None,
 ) -> BaseAgentOutput:
+    if analysis_mode == 'portfolio':
+        if portfolio_data is None:
+            raise ValueError('portfolio_data é obrigatório quando analysis_mode="portfolio".')
+        return _analyze_portfolio(portfolio_data)
+
     today = datetime.date.today()
     year_start = today.year - 5
     year_end = today.year
 
-    company_name = stocks.name(ticker)
-    segment = stocks.details(ticker).get('segmento_de_atuacao', 'nan')
-    multiples = stocks.multiples(ticker)
-    dre_year = stocks.income_statement(ticker, year_start, year_end, 'year')
-    cagr_5y_receita_liq = calc_cagr(dre_year, 'receita_liquida', 5)
-    cagr_5y_lucro_liq = calc_cagr(dre_year, 'lucro_liquido', 5)
+    company_name = stocks.name(ticker, market=market)
+    segment = stocks.details(ticker, market=market).get('segmento_de_atuacao', 'nan')
+    multiples = stocks.multiples(ticker, market=market)
+    dre_year = stocks.income_statement(ticker, year_start, year_end, 'annual', market=market)
+    if dre_year and len(dre_year) >= 2:
+        cagr_5y_receita_liq = calc_cagr(dre_year, 'receita_liquida', 5)
+        cagr_5y_lucro_liq = calc_cagr(dre_year, 'lucro_liquido', 5)
+    else:
+        cagr_5y_receita_liq = None
+        cagr_5y_lucro_liq = None
 
-    _dividends_by_year = stocks.dividends_by_year(ticker)
-    if _dividends_by_year:
-        dividends_growth_by_year = (
-            pl.DataFrame(_dividends_by_year)
-            .sort('ano')
-            .with_columns(valor=pl.col('valor').pct_change().round(4))
-            .drop_nulls()
-            .to_dicts()
-        )
-        # tira dados do ano atual pra nao poluir a análise do AI
-        dividends_by_year = [d for d in _dividends_by_year if d['ano'] < today.year]
-        dividends_growth_by_year = [d for d in dividends_growth_by_year if d['ano'] < today.year]
+    _dividends_by_year = stocks.dividends_by_year(ticker, market=market)
+    dividends_growth_by_year = []
+    dividends_by_year = []
+    if _dividends_by_year and len(_dividends_by_year) > 0:
+        try:
+            df_divs = pl.DataFrame(_dividends_by_year)
+            if "valor" in df_divs.columns and "ano" in df_divs.columns:
+                dividends_growth_by_year = (
+                    df_divs
+                    .sort('ano')
+                    .with_columns(valor=pl.col('valor').pct_change().round(4))
+                    .drop_nulls()
+                    .to_dicts()
+                )
+                # filtra dados do ano atual
+                dividends_by_year = [d for d in _dividends_by_year if d['ano'] < today.year]
+                dividends_growth_by_year = [d for d in dividends_growth_by_year if d['ano'] < today.year]
+        except Exception as e:
+            print(f"Erro ao processar dividendos no Polars (Barsi): {e}")
     else:
         dividends_by_year = []
         dividends_growth_by_year = []
 
-    preco_sobre_lucro = multiples[0].get('p_l')
-    preco_sobre_valor_patrimonial = multiples[0].get('p_vp')
-    dividend_yield = multiples[0].get('dy')
-    try:
-        dividend_yield_per_year = {d['ano']: d['dy'] for d in multiples}
-    except Exception:
+    if multiples and isinstance(multiples, list) and len(multiples) > 0:
+        preco_sobre_lucro = multiples[0].get('p_l', 'N/A')
+        preco_sobre_valor_patrimonial = multiples[0].get('p_vp', 'N/A')
+        dividend_yield = multiples[0].get('dy', 'N/A')
+        try:
+            dividend_yield_per_year = {d['ano']: d['dy'] for d in multiples}
+        except Exception:
+            dividend_yield_per_year = {}
+    else:
+        preco_sobre_lucro = 'N/A'
+        preco_sobre_valor_patrimonial = 'N/A'
+        dividend_yield = 'N/A'
         dividend_yield_per_year = {}
 
-    payouts = stocks.payouts(ticker)
+    payouts = stocks.payouts(ticker, market=market)
 
     prompt = dedent(f"""
     Dado o contexto, analise a empresa abaixo.

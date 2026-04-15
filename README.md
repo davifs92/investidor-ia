@@ -97,6 +97,23 @@ python app.py
 
 Vá na página de Configurações, insira sua api key do Gemini, clique em salvar e dê um refresh na página.
 
+## Desenvolvimento (lint e testes)
+
+Para evitar erro de comando não encontrado (`pytest`/`ruff`), rode via `uv`:
+
+```bash
+# instala dependências (incluindo grupo dev)
+uv sync --group dev
+
+# lint
+uv run ruff check .
+
+# testes
+uv run pytest -q
+```
+
+Também foi adicionado CI no GitHub Actions (`.github/workflows/ci.yml`) para executar essas mesmas validações em push e pull request.
+
 
 ## Disclaimer
 
